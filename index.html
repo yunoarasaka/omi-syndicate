@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Omi Syndicate — Generative Drone Synthesizer</title>
+  <meta name="description" content="Omi Syndicate — a luxury generative drone ambient synthesizer and step sequencer powered by Web Audio API and real-time WebGL shaders." />
+
+  <!-- Refined geometric sans & technical monospace typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@200;300;400;500;600&family=JetBrains+Mono:wght@300;400;500&family=Space+Grotesk:wght@300;400;500&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Full-viewport interactive liquid stage -->
+  <main id="stage" class="stage" aria-label="Interactive drone soundscape field">
+    <!-- WebGL liquid iridescent fluid canvas -->
+    <canvas id="shader-canvas" class="stage-canvas"></canvas>
+    <!-- Crisp 2D vector overlay for locked anchors, ripples, and coordinate reticles -->
+    <canvas id="overlay-canvas" class="stage-canvas overlay-canvas"></canvas>
+
+    <!-- Subtle ambient vignette & optical edge framing -->
+    <div class="stage-vignette" aria-hidden="true"></div>
+
+    <!-- Whisper-quiet initial invitation (fades cleanly on first interaction) -->
+    <div id="stage-prompt" class="stage-prompt" aria-hidden="true">
+      <div class="prompt-ring"></div>
+      <span class="prompt-text">CLICK FIELD TO LOCK DRONE</span>
+      <span class="prompt-sub">X · PITCH &amp; HARMONICS &nbsp;&nbsp;/&nbsp;&nbsp; Y · FILTER &amp; MODULATION</span>
+    </div>
+  </main>
+
+  <!-- Minimal Floating Top Chrome -->
+  <header class="top-bar">
+    <!-- Brand Identity (Top-Left) -->
+    <div class="brand-cluster">
+      <div class="brand-title-row">
+        <span class="status-led" id="status-led" aria-hidden="true"></span>
+        <h1 class="brand-name">OMI SYNDICATE</h1>
+      </div>
+      <div class="brand-meta">
+        <button
+          id="scale-badge"
+          class="scale-badge"
+          type="button"
+          title="Click to cycle Phrygian Dominant root key"
+        >D PHRYGIAN DOM</button>
+        <span class="meta-divider">/</span>
+        <span id="telemetry-readout" class="telemetry-readout">STANDBY · — Hz</span>
+      </div>
+    </div>
+
+    <!-- Master Oscilloscope & Universal Transport (Top-Right) -->
+    <div class="transport-cluster">
+      <!-- Live Drone Oscilloscope -->
+      <div class="scope-module" title="Real-time drone waveform">
+        <div class="scope-header">
+          <span class="micro-label">SCOPE</span>
+          <span id="voice-count" class="micro-value">0 VOICES</span>
+        </div>
+        <canvas id="scope-canvas" class="scope-canvas" width="220" height="44"></canvas>
+      </div>
+
+      <!-- Universal Master Play / Stop Hardware Button -->
+      <button
+        id="master-transport"
+        class="master-play-btn"
+        type="button"
+        aria-label="Play or Stop audio engine"
+        aria-pressed="false"
+        title="Master Play / Stop (Space)"
+      >
+        <span class="btn-bezel">
+          <span class="btn-cap">
+            <!-- Play Icon -->
+            <svg class="icon-play" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M8.5 5.6L19.2 12L8.5 18.4V5.6Z" fill="currentColor" />
+            </svg>
+            <!-- Stop Icon -->
+            <svg class="icon-stop" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <rect x="6.5" y="6.5" width="11" height="11" rx="1.6" fill="currentColor" />
+            </svg>
+          </span>
+        </span>
+        <span class="btn-meta">
+          <span class="btn-state" id="transport-label">PLAY</span>
+          <span class="btn-key">SPACE</span>
+        </span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Fixed Bottom Instrument Console -->
+  <section class="console-dock" aria-label="Synthesizer controls and drum sequencer">
+    <div class="console-chassis">
+
+      <!-- Left Module: Precision Anodized Rotary Knobs -->
+      <div class="knobs-module" aria-label="Drone synthesis parameters">
+        <div class="module-header">
+          <span class="micro-label">DRONE SCULPT</span>
+          <span class="micro-hint">DRAG / SCROLL</span>
+        </div>
+        <div class="knobs-grid">
+          <div
+            class="knob-slot"
+            data-knob="range"
+            data-label="RANGE"
+            data-min="0"
+            data-max="1"
+            data-default="0.45"
+            data-value="0.45"
+          ></div>
+          <div
+            class="knob-slot"
+            data-knob="cutoff"
+            data-label="CUTOFF"
+            data-min="0"
+            data-max="1"
+            data-default="0.62"
+            data-value="0.62"
+          ></div>
+          <div
+            class="knob-slot"
+            data-knob="resonance"
+            data-label="RESONANCE"
+            data-min="0"
+            data-max="1"
+            data-default="0.28"
+            data-value="0.28"
+          ></div>
+          <div
+            class="knob-slot"
+            data-knob="reverb"
+            data-label="SPACE"
+            data-min="0"
+            data-max="1"
+            data-default="0.58"
+            data-value="0.58"
+          ></div>
+        </div>
+      </div>
+
+      <!-- Hairline hardware divider -->
+      <div class="chassis-divider" aria-hidden="true"></div>
+
+      <!-- Right Module: 16-Step Synthesized Drum Sequencer -->
+      <div class="sequencer-module" aria-label="16-step drum sequencer">
+        <div class="sequencer-topbar">
+          <div class="seq-title-group">
+            <button
+              id="drums-toggle"
+              class="pill-toggle active"
+              type="button"
+              aria-pressed="true"
+              title="Enable or mute drum sequencer (D)"
+            >
+              <span class="pill-dot"></span>
+              <span>SEQ</span>
+            </button>
+            <span class="micro-label seq-sublabel">16-STEP SYNTHESIS</span>
+          </div>
+
+          <!-- Independent Drum BPM Control (60–180, default 98) -->
+          <div class="seq-controls-right">
+            <div class="bpm-control" title="Drag vertically or use buttons to adjust drum tempo (60–180 BPM)">
+              <span class="micro-label">BPM</span>
+              <button id="bpm-down" class="bpm-step-btn" type="button" aria-label="Decrease BPM">−</button>
+              <span id="bpm-value" class="bpm-readout" tabindex="0" role="spinbutton" aria-label="Drum tempo in BPM" aria-valuemin="60" aria-valuemax="180" aria-valuenow="98">98</span>
+              <button id="bpm-up" class="bpm-step-btn" type="button" aria-label="Increase BPM">+</button>
+            </div>
+
+            <div class="seq-actions">
+              <button id="seq-preset" class="ghost-btn" type="button" title="Cycle minimal drum patterns">PATTERN</button>
+              <button id="seq-clear" class="ghost-btn" type="button" title="Clear all steps">CLEAR</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3-Track x 16-Step Matrix (populated by app.js) -->
+        <div id="sequencer-grid" class="sequencer-grid"></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Pure Vanilla Modules (file:// & HTTP compatible) -->
+  <script defer src="js/audio.js"></script>
+  <script defer src="js/visuals.js"></script>
+  <script defer src="js/knobs.js"></script>
+  <script defer src="js/app.js"></script>
+</body>
+</html>
