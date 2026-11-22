@@ -13,13 +13,63 @@
 (function (global) {
   'use strict';
 
-  const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const SCALE_NOTE_NAMES = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
 
-  // Phrygian Dominant scale degrees (1, b2, 3, 4, 5, b6, b7)
-  const PHRYGIAN_DOM_INTERVALS = [0, 1, 4, 5, 7, 8, 10];
-  // Strictly in-scale consonant harmonic overtone interval (semitones) for each degree
-  const PHRYGIAN_DOM_HARMONICS = [7, 7, 8, 7, 5, 4, 7];
+  /**
+   * Supported harmonic modes: Phrygian Dominant + all 7 diatonic modes.
+   * Each mode pairs every scale degree with a strictly in-scale consonant harmonic overtone
+   * so overlapping drones never clash regardless of click position.
+   */
+  const SCALES = {
+    'phrygian-dominant': {
+      label: 'PHRYGIAN DOM',
+      formula: '1 b2 3 4 5 b6 b7',
+      intervals: [0, 1, 4, 5, 7, 8, 10],
+      harmonics: [7, 7, 8, 7, 5, 4, 7]
+    },
+    ionian: {
+      label: 'IONIAN',
+      formula: '1 2 3 4 5 6 7',
+      intervals: [0, 2, 4, 5, 7, 9, 11],
+      harmonics: [7, 7, 7, 7, 7, 7, 5]
+    },
+    dorian: {
+      label: 'DORIAN',
+      formula: '1 2 b3 4 5 6 b7',
+      intervals: [0, 2, 3, 5, 7, 9, 10],
+      harmonics: [7, 7, 7, 7, 7, 5, 7]
+    },
+    phrygian: {
+      label: 'PHRYGIAN',
+      formula: '1 b2 b3 4 5 b6 b7',
+      intervals: [0, 1, 3, 5, 7, 8, 10],
+      harmonics: [7, 7, 7, 7, 5, 7, 7]
+    },
+    lydian: {
+      label: 'LYDIAN',
+      formula: '1 2 3 #4 5 6 7',
+      intervals: [0, 2, 4, 6, 7, 9, 11],
+      harmonics: [7, 7, 7, 5, 7, 7, 7]
+    },
+    mixolydian: {
+      label: 'MIXOLYDIAN',
+      formula: '1 2 3 4 5 6 b7',
+      intervals: [0, 2, 4, 5, 7, 9, 10],
+      harmonics: [7, 7, 5, 7, 7, 7, 7]
+    },
+    aeolian: {
+      label: 'AEOLIAN',
+      formula: '1 2 b3 4 5 b6 b7',
+      intervals: [0, 2, 3, 5, 7, 8, 10],
+      harmonics: [7, 5, 7, 7, 7, 7, 7]
+    },
+    locrian: {
+      label: 'LOCRIAN',
+      formula: '1 b2 b3 4 b5 b6 b7',
+      intervals: [0, 1, 3, 5, 6, 8, 10],
+      harmonics: [5, 7, 7, 7, 7, 7, 7]
+    }
+  };
 
   function midiToFreq(midi) {
     return 440 * Math.pow(2, (midi - 69) / 12);
@@ -48,10 +98,11 @@
   }
 
   /**
-   * Build all Phrygian Dominant notes inside [minFreq, maxFreq] and map xNorm [0..1]
+   * Build all notes of the selected scale inside [minFreq, maxFreq] and map xNorm [0..1]
    * cleanly onto the scale so every click anywhere on the field lands in harmony.
    */
-  function quantizePhrygianDominant(xNorm, rangeNorm, rootSemitone = 2) {
+  function quantizeToScale(xNorm, rangeNorm, rootSemitone = 2, scaleKey = 'phrygian-dominant') {
+    const scale = SCALES[scaleKey] || SCALES['phrygian-dominant'];
     const { minFreq, maxFreq } = computeRangeBounds(rangeNorm);
     const minMidi = Math.ceil(freqToMidi(minFreq));
     const maxMidi = Math.floor(freqToMidi(maxFreq));
@@ -59,7 +110,7 @@
     const scaleNotes = [];
     for (let midi = minMidi; midi <= maxMidi; midi++) {
       const rel = (((midi - rootSemitone) % 12) + 12) % 12;
-      const degreeIdx = PHRYGIAN_DOM_INTERVALS.indexOf(rel);
+      const degreeIdx = scale.intervals.indexOf(rel);
       if (degreeIdx !== -1) {
         scaleNotes.push({ midi, degreeIdx });
       }
@@ -85,8 +136,8 @@
     const chosen = scaleNotes[idx];
     const baseFreq = midiToFreq(chosen.midi);
 
-    // Consonant harmonic overtone strictly inside the same Phrygian Dominant scale
-    const harmonicOffset = PHRYGIAN_DOM_HARMONICS[chosen.degreeIdx];
+    // Consonant harmonic overtone strictly inside the active scale
+    const harmonicOffset = scale.harmonics[chosen.degreeIdx];
     const shimmerOctave = xNorm > 0.72 ? 12 : 0;
     const harmonicFreq = midiToFreq(chosen.midi + harmonicOffset + shimmerOctave);
 
@@ -328,9 +379,10 @@
       const now = this.ctx.currentTime;
       const tau = Math.max(0.004, morphSeconds / 3.0);
 
-      // Quantize pitch strictly to Phrygian Dominant scale so every note harmonizes
-      const rootSemitone = params.rootSemitone ?? 2; // Default: D Phrygian Dominant
-      const pitched = quantizePhrygianDominant(xNorm, params.range, rootSemitone);
+      // Quantize pitch strictly to the active scale so every note harmonizes
+      const rootSemitone = params.rootSemitone ?? 2; // Default: D
+      const scaleKey = params.scale || 'phrygian-dominant';
+      const pitched = quantizeToScale(xNorm, params.range, rootSemitone, scaleKey);
       const baseFreq = pitched.freq;
 
       // Oscillator pitches with musical subtle analog detune
@@ -449,13 +501,14 @@
       this.isInitialized = false;
       this.isPlaying = false;
 
-      // Synthesis parameters (normalized 0..1) + Phrygian Dominant root (2 = D)
+      // Synthesis parameters (normalized 0..1) + active harmonic mode (default: D Phrygian Dominant)
       this.params = {
         range: 0.45,
         cutoff: 0.62,
         resonance: 0.28,
         reverb: 0.58,
-        rootSemitone: 2
+        rootSemitone: 2,
+        scale: 'phrygian-dominant'
       };
 
       // Active drone voice state
@@ -776,21 +829,34 @@
     }
 
     /**
-     * Change the root key of the Phrygian Dominant scale (0=C .. 11=B).
+     * Change the root key of the active scale (0=C .. 11=B).
      */
     setRoot(semitone) {
       this.params.rootSemitone = ((Math.round(semitone) % 12) + 12) % 12;
+      this.reharmonizeVoices(0.35);
+    }
+
+    /**
+     * Switch the active musical mode (Phrygian Dominant or any of the 7 diatonic modes).
+     */
+    setScale(scaleKey) {
+      if (!SCALES[scaleKey]) return;
+      this.params.scale = scaleKey;
+      this.reharmonizeVoices(0.35);
+    }
+
+    reharmonizeVoices(morphSeconds = 0.35) {
       if (!this.isInitialized) return;
       if (this.primaryVoice && this.lockedZone) {
         this.primaryVoice.applyParameters(
           this.lockedZone.x,
           this.lockedZone.y,
           this.params,
-          0.35
+          morphSeconds
         );
       }
       for (const v of this.fadingVoices) {
-        v.applyParameters(v.x, v.y, this.params, 0.35);
+        v.applyParameters(v.x, v.y, this.params, morphSeconds);
       }
     }
 
@@ -808,10 +874,15 @@
     }
 
     /**
-     * Compute human-readable Phrygian Dominant frequency, note, and filter cutoff for HUD display.
+     * Compute human-readable quantized frequency, note, and filter cutoff for HUD display.
      */
     getZoneTelemetry(x, y) {
-      const pitched = quantizePhrygianDominant(x, this.params.range, this.params.rootSemitone);
+      const pitched = quantizeToScale(
+        x,
+        this.params.range,
+        this.params.rootSemitone,
+        this.params.scale
+      );
       const knobCutoff = 140 * Math.pow(62, this.params.cutoff);
       const yFactor = 0.28 + Math.pow(y, 1.45) * 1.25;
       const xTracking = 0.78 + x * 0.45;
@@ -1090,6 +1161,8 @@
 
   global.OmiAudio = {
     AudioEngine,
+    SCALES,
+    SCALE_NOTE_NAMES,
     computeRangeBounds,
     freqToNote
   };

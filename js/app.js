@@ -10,7 +10,7 @@
 (function () {
   'use strict';
 
-  const { AudioEngine, computeRangeBounds, freqToNote } = window.OmiAudio;
+  const { AudioEngine, SCALES, SCALE_NOTE_NAMES, computeRangeBounds } = window.OmiAudio;
   const { LiquidShader, OverlayRenderer, ScopeRenderer } = window.OmiVisuals;
   const { RotaryKnob } = window.OmiKnobs;
 
@@ -57,13 +57,15 @@
     return Math.max(min, Math.min(max, v));
   }
 
-  const PHRYGIAN_ROOTS = [
-    { name: 'D', semitone: 2 },
-    { name: 'E', semitone: 4 },
-    { name: 'F', semitone: 5 },
-    { name: 'G', semitone: 7 },
-    { name: 'A', semitone: 9 },
-    { name: 'C', semitone: 0 }
+  const SCALE_ORDER = [
+    'phrygian-dominant',
+    'ionian',
+    'dorian',
+    'phrygian',
+    'lydian',
+    'mixolydian',
+    'aeolian',
+    'locrian'
   ];
 
   // Instantiate core systems
@@ -75,7 +77,11 @@
   const scopeCanvas = document.getElementById('scope-canvas');
 
   const statusLedEl = document.getElementById('status-led');
-  const scaleBadgeEl = document.getElementById('scale-badge');
+  const scalePickerEl = document.getElementById('scale-picker');
+  const rootBtnEl = document.getElementById('root-btn');
+  const modeBtnEl = document.getElementById('mode-btn');
+  const modeLabelEl = document.getElementById('mode-label');
+  const scaleMenuEl = document.getElementById('scale-menu');
   const telemetryEl = document.getElementById('telemetry-readout');
   const voiceCountEl = document.getElementById('voice-count');
   const transportBtn = document.getElementById('master-transport');
@@ -115,7 +121,9 @@
   };
 
   let presetIndex = 0;
-  let rootIndex = 0;
+  let rootSemitone = audio.params.rootSemitone; // Default 2 (D)
+  let activeScaleKey = audio.params.scale;      // Default 'phrygian-dominant'
+  let scaleOptionButtons = {};
   let isStageDragging = false;
   let hasInteracted = false;
   let stepButtons = { kick: [], snare: [], hat: [] };
@@ -178,16 +186,123 @@
     toggleMasterTransport();
   });
 
-  if (scaleBadgeEl) {
-    scaleBadgeEl.addEventListener('click', (e) => {
-      e.stopPropagation();
-      rootIndex = (rootIndex + 1) % PHRYGIAN_ROOTS.length;
-      const root = PHRYGIAN_ROOTS[rootIndex];
-      audio.setRoot(root.semitone);
-      scaleBadgeEl.textContent = `${root.name} PHRYGIAN DOM`;
-      updateTelemetryDisplay();
+  /* ==========================================================================
+     Scale Mode & Root Key Picker (Phrygian Dominant + 7 Diatonic Modes)
+     ========================================================================== */
+
+  function setScaleMenuOpen(open) {
+    if (!scalePickerEl || !modeBtnEl) return;
+    scalePickerEl.classList.toggle('is-open', open);
+    modeBtnEl.setAttribute('aria-expanded', String(open));
+  }
+
+  function selectScale(scaleKey) {
+    if (!SCALES[scaleKey]) return;
+    activeScaleKey = scaleKey;
+    audio.setScale(scaleKey);
+    if (modeLabelEl) {
+      modeLabelEl.textContent = SCALES[scaleKey].label;
+    }
+    for (const [key, btn] of Object.entries(scaleOptionButtons)) {
+      const isCurrent = key === scaleKey;
+      btn.classList.toggle('is-active', isCurrent);
+      btn.setAttribute('aria-selected', String(isCurrent));
+    }
+    updateTelemetryDisplay();
+  }
+
+  function stepRoot(delta) {
+    rootSemitone = (rootSemitone + delta + 12) % 12;
+    audio.setRoot(rootSemitone);
+    if (rootBtnEl) {
+      rootBtnEl.textContent = SCALE_NOTE_NAMES[rootSemitone];
+    }
+    updateTelemetryDisplay();
+  }
+
+  function buildScaleMenu() {
+    if (!scaleMenuEl) return;
+    scaleMenuEl.innerHTML = '';
+    scaleOptionButtons = {};
+
+    SCALE_ORDER.forEach((key, index) => {
+      const scale = SCALES[key];
+      if (!scale) return;
+
+      // Subtle hairline divider between Phrygian Dominant and the 7 diatonic modes
+      if (index === 1) {
+        const divider = document.createElement('div');
+        divider.className = 'scale-menu-divider';
+        divider.setAttribute('aria-hidden', 'true');
+        scaleMenuEl.appendChild(divider);
+      }
+
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'scale-option';
+      btn.setAttribute('role', 'option');
+      const isCurrent = key === activeScaleKey;
+      btn.classList.toggle('is-active', isCurrent);
+      btn.setAttribute('aria-selected', String(isCurrent));
+
+      btn.innerHTML = `
+        <span class="scale-option-left">
+          <span class="scale-option-dot"></span>
+          <span>${scale.label}</span>
+        </span>
+        <span class="scale-option-formula">${scale.formula}</span>
+      `;
+
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectScale(key);
+        setScaleMenuOpen(false);
+      });
+
+      scaleMenuEl.appendChild(btn);
+      scaleOptionButtons[key] = btn;
     });
   }
+
+  if (rootBtnEl) {
+    rootBtnEl.textContent = SCALE_NOTE_NAMES[rootSemitone];
+    rootBtnEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      stepRoot(1);
+    });
+    rootBtnEl.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      stepRoot(e.deltaY < 0 ? 1 : -1);
+    }, { passive: false });
+  }
+
+  if (modeBtnEl) {
+    modeBtnEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isOpen = scalePickerEl.classList.contains('is-open');
+      setScaleMenuOpen(!isOpen);
+    });
+  }
+
+  if (scaleMenuEl) {
+    scaleMenuEl.addEventListener('pointerdown', (e) => e.stopPropagation());
+    buildScaleMenu();
+  }
+
+  window.addEventListener('pointerdown', (e) => {
+    if (scalePickerEl && scalePickerEl.classList.contains('is-open')) {
+      if (!scalePickerEl.contains(e.target)) {
+        setScaleMenuOpen(false);
+      }
+    }
+  });
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && scalePickerEl?.classList.contains('is-open')) {
+      setScaleMenuOpen(false);
+    }
+  });
 
   /* ==========================================================================
      Interactive Liquid Stage Events

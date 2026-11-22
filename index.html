@@ -41,12 +41,30 @@
         <h1 class="brand-name">OMI SYNDICATE</h1>
       </div>
       <div class="brand-meta">
-        <button
-          id="scale-badge"
-          class="scale-badge"
-          type="button"
-          title="Click to cycle Phrygian Dominant root key"
-        >D PHRYGIAN DOM</button>
+        <div class="scale-picker" id="scale-picker">
+          <button
+            id="root-btn"
+            class="scale-root-btn"
+            type="button"
+            title="Click or scroll to change root key"
+            aria-label="Root note"
+          >D</button>
+          <span class="scale-sep" aria-hidden="true"></span>
+          <button
+            id="mode-btn"
+            class="scale-mode-btn"
+            type="button"
+            aria-haspopup="listbox"
+            aria-expanded="false"
+            title="Choose musical mode"
+          >
+            <span id="mode-label">PHRYGIAN DOM</span>
+            <svg class="mode-chevron" viewBox="0 0 12 12" width="9" height="9" aria-hidden="true">
+              <path d="M2.5 4.5L6 8L9.5 4.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+          <div id="scale-menu" class="scale-menu" role="listbox" aria-label="Musical modes"></div>
+        </div>
         <span class="meta-divider">/</span>
         <span id="telemetry-readout" class="telemetry-readout">STANDBY · — Hz</span>
       </div>
