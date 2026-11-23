@@ -2,7 +2,7 @@
 
 Generative Phrygian Dominant ambient drone synthesizer and 16-step drum machine built with pure Web Audio API and real-time WebGL shaders.
 
-**Live:** https://yunoarasaka.codeberg.page/omi-syndicate/
+**Live:** https://yunoarasaka.github.io/omi-syndicate/
 
 ## Features
 - **Interactive Liquid Field:** Real-time WebGL domain-warped fluid shader with thin-film iridescent sheen and audio-reactive luminescence.
