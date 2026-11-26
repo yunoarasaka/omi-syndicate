@@ -251,7 +251,10 @@
   class DroneVoice {
     constructor(ctx, destination, noiseBuffer, xNorm, yNorm, params) {
       this.ctx = ctx;
+      this.isReleasing = false;
       this.isDisposed = false;
+      this.disposeTimer = null;
+      this.onDisposed = null;
       this.x = xNorm;
       this.y = yNorm;
 
@@ -433,22 +436,37 @@
 
     /**
      * Gracefully crossfade out and clean up audio nodes.
+     * Can be called again with a shorter fadeSeconds to accelerate release (e.g., on voice cap or Stop).
      */
-    release(fadeSeconds = 3.6) {
+    release(fadeSeconds = 3.6, onDisposed = null) {
       if (this.isDisposed) return;
-      this.isDisposed = true;
+      this.isReleasing = true;
+      if (onDisposed) {
+        this.onDisposed = onDisposed;
+      }
+
+      if (this.disposeTimer !== null) {
+        clearTimeout(this.disposeTimer);
+        this.disposeTimer = null;
+      }
 
       const now = this.ctx.currentTime;
-      const tau = Math.max(0.02, fadeSeconds / 4.2);
+      const tau = Math.max(0.012, fadeSeconds / 4.2);
 
       this.voiceGain.gain.cancelScheduledValues(now);
       this.voiceGain.gain.setTargetAtTime(0.00001, now, tau);
 
-      const cleanupMs = Math.ceil((fadeSeconds + 0.4) * 1000);
-      setTimeout(() => this.disposeNodes(), cleanupMs);
+      const cleanupMs = Math.ceil((fadeSeconds + 0.35) * 1000);
+      this.disposeTimer = setTimeout(() => this.disposeNodes(), cleanupMs);
     }
 
     disposeNodes() {
+      if (this.isDisposed) return;
+      this.isDisposed = true;
+      if (this.disposeTimer !== null) {
+        clearTimeout(this.disposeTimer);
+        this.disposeTimer = null;
+      }
       const stoppables = [
         this.oscSub,
         this.oscTri,
@@ -474,6 +492,11 @@
       ];
       for (const node of gains) {
         try { node.disconnect(); } catch (_) {}
+      }
+      if (this.onDisposed) {
+        const cb = this.onDisposed;
+        this.onDisposed = null;
+        cb();
       }
     }
   }
@@ -515,7 +538,9 @@
       this.primaryVoice = null;
       this.fadingVoices = [];
       this.lockedZone = null; // { x, y }
-      this.lastClickTime = 0;
+      this.lastClickTime = -Infinity;
+      this.stopTimer = null;
+      this.pendingStopVoices = [];
 
       // Drum sequencer state (16 steps x 3 tracks)
       this.bpm = 98;
@@ -523,7 +548,7 @@
       this.currentStep = 0;
       this.nextNoteTime = 0;
       this.schedulerTimer = null;
-      this.stepCallbacks = [];
+      this.stepCallbacks = new Set();
       this.onStepVisual = null;
       this.onDrumHit = null;
 
@@ -661,12 +686,31 @@
       this.isInitialized = true;
     }
 
+    removeFadingVoice(voice) {
+      const idx = this.fadingVoices.indexOf(voice);
+      if (idx !== -1) {
+        this.fadingVoices.splice(idx, 1);
+      }
+    }
+
     /**
      * Universal Play — wakes AudioContext, fades master in cleanly,
      * starts drum sequencer, and restores locked drone if one exists.
      */
-    async play() {
+    async play(options = {}) {
+      const { restoreVoice = true } = options;
       this.init();
+
+      // If Stop was pressed <70ms ago, flush its pending voice disposal immediately
+      if (this.stopTimer !== null) {
+        clearTimeout(this.stopTimer);
+        this.stopTimer = null;
+        for (const v of this.pendingStopVoices) {
+          v.disposeNodes();
+        }
+        this.pendingStopVoices = [];
+      }
+
       if (this.ctx.state === 'suspended') {
         await this.ctx.resume();
       }
@@ -679,7 +723,7 @@
       this.masterGain.gain.setTargetAtTime(0.86, now, 0.025);
 
       // Restore sustaining drone if a zone was already locked
-      if (this.lockedZone && !this.primaryVoice) {
+      if (restoreVoice && this.lockedZone && !this.primaryVoice) {
         this.primaryVoice = new DroneVoice(
           this.ctx,
           this.droneBus,
@@ -708,7 +752,7 @@
         this.masterGain.gain.cancelScheduledValues(now);
         this.masterGain.gain.setTargetAtTime(0.00001, now, 0.012);
 
-        // Cleanly release active voices after master hits silence
+        // Cleanly release active voices (including already-fading layers) after master hits silence
         const voicesToRelease = [...this.fadingVoices];
         if (this.primaryVoice) {
           voicesToRelease.push(this.primaryVoice);
@@ -716,8 +760,16 @@
         }
         this.fadingVoices = [];
 
-        setTimeout(() => {
-          for (const v of voicesToRelease) {
+        if (this.stopTimer !== null) {
+          clearTimeout(this.stopTimer);
+        }
+        this.pendingStopVoices = [...this.pendingStopVoices, ...voicesToRelease];
+
+        this.stopTimer = setTimeout(() => {
+          this.stopTimer = null;
+          const batch = this.pendingStopVoices;
+          this.pendingStopVoices = [];
+          for (const v of batch) {
             v.release(0.05);
           }
           if (!this.isPlaying && this.ctx && this.ctx.state === 'running') {
@@ -729,7 +781,7 @@
 
     /**
      * Trigger or morph the drone at normalized canvas coordinates (x: 0..1, y: 0..1).
-     *  - Calm clicks morph the active sustaining pad smoothly over ~560ms.
+     *  - Calm clicks morph the active sustaining pad smoothly over ~580ms.
      *  - Rapid clicks (< 720ms apart) spawn overlapping harmonic layers that bloom
      *    and gracefully dissolve into the newly locked zone.
      *  - Dragging glides continuously in real time.
@@ -740,7 +792,7 @@
       this.lockedZone = { x, y };
 
       if (!this.isPlaying) {
-        await this.play();
+        await this.play({ restoreVoice: false });
       }
 
       const now = this.ctx.currentTime;
@@ -770,21 +822,14 @@
       } else if (dt < 0.72) {
         // Rapid click — allow lush overlapping harmonic layers that gradually settle
         const retiring = this.primaryVoice;
-        retiring.release(3.8);
         this.fadingVoices.push(retiring);
+        retiring.release(3.8, () => this.removeFadingVoice(retiring));
 
-        // Cap simultaneous fading layers for clean headroom
+        // Cap simultaneous fading layers for clean headroom and accelerate oldest voice fade
         while (this.fadingVoices.length > 3) {
           const oldest = this.fadingVoices.shift();
           oldest.release(0.45);
         }
-
-        // Prune disposed references
-        this.fadingVoices = this.fadingVoices.filter((v) => !v.isDisposed || true);
-        setTimeout(() => {
-          const idx = this.fadingVoices.indexOf(retiring);
-          if (idx !== -1) this.fadingVoices.splice(idx, 1);
-        }, 4200);
 
         this.primaryVoice = new DroneVoice(
           this.ctx,
@@ -796,7 +841,7 @@
         );
         spawnedNew = true;
       } else {
-        // Primary behavior — smoothly morph/crossfade existing pad to new zone (~560ms)
+        // Primary behavior — smoothly morph/crossfade existing pad to new zone (~580ms)
         this.primaryVoice.applyParameters(x, y, this.params, 0.58);
       }
 
@@ -947,7 +992,7 @@
       for (const id of this.stepCallbacks) {
         clearTimeout(id);
       }
-      this.stepCallbacks = [];
+      this.stepCallbacks.clear();
       if (this.onStepVisual) {
         this.onStepVisual(-1);
       }
@@ -955,6 +1000,11 @@
 
     scheduleAhead() {
       if (!this.isPlaying || !this.ctx) return;
+
+      // Guard against burst catch-up when returning from a throttled background tab
+      if (this.nextNoteTime < this.ctx.currentTime - 0.25) {
+        this.nextNoteTime = this.ctx.currentTime + 0.04;
+      }
 
       const lookahead = 0.11; // seconds
       while (this.nextNoteTime < this.ctx.currentTime + lookahead) {
@@ -979,9 +1029,10 @@
           if (hitStrength > 0 && this.onDrumHit) {
             const delayMs = Math.max(0, (time - this.ctx.currentTime) * 1000);
             const id = setTimeout(() => {
+              this.stepCallbacks.delete(id);
               if (this.isPlaying) this.onDrumHit(hitStrength);
             }, delayMs);
-            this.stepCallbacks.push(id);
+            this.stepCallbacks.add(id);
           }
         }
 
@@ -989,20 +1040,16 @@
         if (this.onStepVisual) {
           const delayMs = Math.max(0, (time - this.ctx.currentTime) * 1000);
           const id = setTimeout(() => {
+            this.stepCallbacks.delete(id);
             if (this.isPlaying) this.onStepVisual(step);
           }, delayMs);
-          this.stepCallbacks.push(id);
+          this.stepCallbacks.add(id);
         }
 
         // Advance 16th note
         const secondsPer16th = (60.0 / this.bpm) * 0.25;
         this.nextNoteTime += secondsPer16th;
         this.currentStep = (this.currentStep + 1) % 16;
-      }
-
-      // Keep callback list bounded
-      if (this.stepCallbacks.length > 64) {
-        this.stepCallbacks.splice(0, 32);
       }
     }
 
@@ -1122,16 +1169,17 @@
       noise.start(time);
       noise.stop(time + 0.07);
 
-      // Metallic FM-like partials
+      // Metallic FM-like partials routed through a single shared gain node
+      const metalGain = ctx.createGain();
+      metalGain.gain.setValueAtTime(0.055, time);
+      metalGain.connect(hp);
+
       const ratios = [205.3, 304.4, 369.6, 522.7, 540.0, 800.0];
       for (let i = 0; i < ratios.length; i++) {
         const osc = ctx.createOscillator();
-        const oscGain = ctx.createGain();
         osc.type = 'square';
         osc.frequency.setValueAtTime(ratios[i] * 1.85, time);
-        oscGain.gain.setValueAtTime(0.055, time);
-        osc.connect(oscGain);
-        oscGain.connect(hp);
+        osc.connect(metalGain);
         osc.start(time);
         osc.stop(time + 0.065);
       }

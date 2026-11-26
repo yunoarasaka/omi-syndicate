@@ -196,6 +196,16 @@
       this.ready = false;
       if (!this.gl) return;
 
+      this.canvas.addEventListener('webglcontextlost', (e) => {
+        e.preventDefault();
+        this.ready = false;
+      });
+
+      this.canvas.addEventListener('webglcontextrestored', () => {
+        this.initPipeline();
+        this.resize();
+      });
+
       this.initPipeline();
       this.resize();
     }
@@ -524,13 +534,19 @@
 
     setupDPI() {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const cssW = 148;
-      const cssH = 30;
+      const cssW = this.canvas.clientWidth || 148;
+      const cssH = this.canvas.clientHeight || 30;
       this.width = cssW;
       this.height = cssH;
       this.canvas.width = Math.floor(cssW * dpr);
       this.canvas.height = Math.floor(cssH * dpr);
       this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const grad = this.ctx.createLinearGradient(0, 0, cssW, 0);
+      grad.addColorStop(0, 'rgba(167, 139, 250, 0.35)');
+      grad.addColorStop(0.5, 'rgba(145, 232, 255, 0.92)');
+      grad.addColorStop(1, 'rgba(232, 174, 212, 0.45)');
+      this.grad = grad;
     }
 
     render(timeData, isPlaying, time) {
@@ -548,11 +564,6 @@
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
       ctx.lineWidth = 0.75;
       ctx.stroke();
-
-      const grad = ctx.createLinearGradient(0, 0, w, 0);
-      grad.addColorStop(0, 'rgba(167, 139, 250, 0.35)');
-      grad.addColorStop(0.5, 'rgba(145, 232, 255, 0.92)');
-      grad.addColorStop(1, 'rgba(232, 174, 212, 0.45)');
 
       ctx.beginPath();
 
@@ -593,7 +604,7 @@
         else ctx.lineTo(x, y);
       }
 
-      ctx.strokeStyle = grad;
+      ctx.strokeStyle = this.grad;
       ctx.lineWidth = 1.35;
       ctx.shadowColor = 'rgba(123, 227, 246, 0.45)';
       ctx.shadowBlur = 5;

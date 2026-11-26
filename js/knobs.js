@@ -178,6 +178,7 @@
 
     bindEvents() {
       this.dialWrap.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
         e.preventDefault();
         e.stopPropagation();
         this.isDragging = true;
@@ -242,7 +243,7 @@
 
     setValue(nextVal, emit = false) {
       const clamped = clamp(nextVal, this.min, this.max);
-      if (Math.abs(clamped - this.value) < 0.0001 && !emit) return;
+      if (Math.abs(clamped - this.value) < 0.0001) return;
       this.value = clamped;
       this.render();
       if (emit) {

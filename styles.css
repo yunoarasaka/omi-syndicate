@@ -72,6 +72,9 @@ body {
     radial-gradient(ellipse 75% 65% at 78% 65%, rgba(16, 72, 92, 0.48), transparent 62%),
     radial-gradient(ellipse 60% 60% at 52% 45%, rgba(92, 34, 68, 0.32), transparent 70%),
     #050609;
+}
+
+.stage.is-fallback {
   animation: fallback-drift 28s ease-in-out infinite alternate;
 }
 
@@ -736,7 +739,6 @@ body {
 
 .knob-value-arc {
   fill: none;
-  stroke: url(#knob-arc-grad);
   stroke-width: 2;
   stroke-linecap: round;
   filter: drop-shadow(0 0 4px rgba(138, 224, 252, 0.45));

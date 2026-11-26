@@ -97,6 +97,9 @@
   const clearBtn = document.getElementById('seq-clear');
 
   const shader = new LiquidShader(shaderCanvas);
+  if (!shader.ready) {
+    stageEl.classList.add('is-fallback');
+  }
   const overlay = new OverlayRenderer(overlayCanvas);
   const scope = new ScopeRenderer(scopeCanvas);
 
@@ -473,6 +476,7 @@
 
         // Click or sweep-paint across steps seamlessly
         btn.addEventListener('pointerdown', (e) => {
+          if (e.button !== 0) return;
           e.preventDefault();
           const next = audio.toggleStep(track.key, step);
           isPaintingSteps = true;
@@ -500,9 +504,11 @@
     }
   }
 
-  window.addEventListener('pointerup', () => {
+  const stopPaintingSteps = () => {
     isPaintingSteps = false;
-  });
+  };
+  window.addEventListener('pointerup', stopPaintingSteps);
+  window.addEventListener('pointercancel', stopPaintingSteps);
 
   function syncSequencerButtons() {
     for (const track of TRACKS) {
@@ -562,6 +568,7 @@
   let bpmDragStartVal = audio.bpm;
 
   bpmReadoutEl.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
     e.preventDefault();
     bpmDragActive = true;
     bpmDragStartY = e.clientY;
@@ -601,9 +608,12 @@
   });
 
   // Cycle curated presets & clear steps
+  presetBtn.textContent = DRUM_PRESETS[presetIndex].name;
   presetBtn.addEventListener('click', () => {
     presetIndex = (presetIndex + 1) % DRUM_PRESETS.length;
-    audio.setPattern(DRUM_PRESETS[presetIndex]);
+    const preset = DRUM_PRESETS[presetIndex];
+    audio.setPattern(preset);
+    presetBtn.textContent = preset.name;
     syncSequencerButtons();
   });
 
@@ -619,6 +629,7 @@
      ========================================================================== */
 
   window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
 
     if (e.code === 'Space') {
@@ -632,6 +643,7 @@
   window.addEventListener('resize', () => {
     shader.resize();
     overlay.resize();
+    scope.setupDPI();
   });
 
   /* ==========================================================================
